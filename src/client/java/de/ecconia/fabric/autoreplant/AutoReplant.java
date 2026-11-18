@@ -93,7 +93,13 @@ public class AutoReplant implements ClientModInitializer
 		).isAccepted())
 		{
 			player.sendMessage(Text.literal("[AutoReplant] Failed to interact with block..."), false);
+			return ActionResult.FAIL;
 		}
+
+		//Harvest and replant fully succeeded: vanilla has just set the held-right-click delay (itemUseCooldown) to 4 ticks.
+		//Clear it, so the next crop can be harvested on the next tick (same rate as holding left click).
+		//Only done on success, so failures keep vanilla pacing.
+		client.itemUseCooldown = 0;
 		return ActionResult.FAIL;
 	}
 }
