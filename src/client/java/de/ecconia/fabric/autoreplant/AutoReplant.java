@@ -3,7 +3,7 @@ package de.ecconia.fabric.autoreplant;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -32,13 +32,10 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
-import org.lwjgl.glfw.GLFW;
 
 public class AutoReplant implements ClientModInitializer
 {
 	public static final String MOD_ID = "ecconia-auto-replant";
-	//PitcherCropBlock keeps its max age in an unnamed constant (field_43240).
-	private static final int PITCHER_MAX_AGE = 4;
 
 	public static AutoReplantConfig config;
 	//Something was harvested since right-click was last pressed down.
@@ -52,10 +49,10 @@ public class AutoReplant implements ClientModInitializer
 		config = AutoReplantConfig.load();
 
 		//Unbound by default, set it in Options > Controls > Key Binds.
-		KeyMapping toggleKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+		KeyMapping toggleKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 				"key." + MOD_ID + ".toggle",
-				InputConstants.Type.KEYSYM,
-				GLFW.GLFW_KEY_UNKNOWN,
+				InputConstants.Type.KEYBOARD,
+				InputConstants.UNKNOWN.getValue(),
 				KeyMapping.Category.register(Identifier.fromNamespaceAndPath(MOD_ID, "main"))));
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			while(toggleKey.consumeClick())
@@ -64,7 +61,7 @@ public class AutoReplant implements ClientModInitializer
 				config.save();
 				if(client.player != null)
 				{
-					client.player.displayClientMessage(Component.translatable("message." + MOD_ID + (config.enabled ? ".enabled" : ".disabled")), true);
+					client.player.sendOverlayMessage(Component.translatable("message." + MOD_ID + (config.enabled ? ".enabled" : ".disabled")));
 				}
 			}
 			if(!client.options.keyUse.isDown())
@@ -141,7 +138,7 @@ public class AutoReplant implements ClientModInitializer
 			BlockState lowerState = world.getBlockState(lowerPos);
 			if(lowerState.getBlock() instanceof PitcherCropBlock
 					&& lowerState.getValue(PitcherCropBlock.HALF) == DoubleBlockHalf.LOWER
-					&& lowerState.getValue(PitcherCropBlock.AGE) >= PITCHER_MAX_AGE)
+					&& lowerState.getValue(PitcherCropBlock.AGE) >= PitcherCropBlock.MAX_AGE)
 			{
 				return growsOnBlockBelow(Crop.PITCHER_PLANT, lowerPos, lowerState, Items.PITCHER_POD);
 			}
@@ -254,7 +251,7 @@ public class AutoReplant implements ClientModInitializer
 		//(for example place a held block, or cocoa beans on a nearby jungle log).
 		if(replant && !haveSeed && config.onlyHarvestWithSeeds)
 		{
-			message(player, "no_seeds", seed.getName());
+			message(player, "no_seeds", seed.getName(seed.getDefaultInstance()));
 			return InteractionResult.FAIL;
 		}
 
@@ -287,7 +284,7 @@ public class AutoReplant implements ClientModInitializer
 		{
 			if(!haveSeed)
 			{
-				message(player, "no_seeds", seed.getName());
+				message(player, "no_seeds", seed.getName(seed.getDefaultInstance()));
 				return InteractionResult.FAIL;
 			}
 
@@ -346,7 +343,7 @@ public class AutoReplant implements ClientModInitializer
 	{
 		if(config.showMessages)
 		{
-			player.displayClientMessage(Component.translatable("message." + MOD_ID + "." + key, args), true);
+			player.sendOverlayMessage(Component.translatable("message." + MOD_ID + "." + key, args));
 		}
 	}
 }
