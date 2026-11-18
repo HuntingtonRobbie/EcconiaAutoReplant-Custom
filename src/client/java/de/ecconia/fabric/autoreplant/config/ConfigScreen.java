@@ -6,8 +6,8 @@ import de.ecconia.fabric.autoreplant.Crop;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
 import me.shedaniel.clothconfig2.api.ConfigEntryBuilder;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.text.Text;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 
 /**
  * The settings screen (Cloth Config). Kept in its own class so the mod still loads without Cloth Config installed.
@@ -26,50 +26,50 @@ public final class ConfigScreen
 		AutoReplantConfig defaults = new AutoReplantConfig();
 		ConfigBuilder builder = ConfigBuilder.create()
 				.setParentScreen(parent)
-				.setTitle(Text.translatable(KEY + "title"))
+				.setTitle(Component.translatable(KEY + "title"))
 				.setSavingRunnable(config::save);
 		ConfigEntryBuilder entries = builder.entryBuilder();
 
-		ConfigCategory general = builder.getOrCreateCategory(Text.translatable(KEY + "category.general"));
-		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "enabled"), config.enabled)
+		ConfigCategory general = builder.getOrCreateCategory(Component.translatable(KEY + "category.general"));
+		general.addEntry(entries.startBooleanToggle(Component.translatable(KEY + "enabled"), config.enabled)
 				.setDefaultValue(defaults.enabled)
-				.setTooltip(Text.translatable(KEY + "enabled.tooltip"))
+				.setTooltip(Component.translatable(KEY + "enabled.tooltip"))
 				.setSaveConsumer(value -> config.enabled = value)
 				.build());
-		general.addEntry(entries.startIntSlider(Text.translatable(KEY + "delay"), config.replantDelayTicks, 0, AutoReplantConfig.MAX_DELAY_TICKS)
+		general.addEntry(entries.startIntSlider(Component.translatable(KEY + "delay"), config.replantDelayTicks, 0, AutoReplantConfig.MAX_DELAY_TICKS)
 				.setDefaultValue(defaults.replantDelayTicks)
 				.setTextGetter(ConfigScreen::delayText)
-				.setTooltip(Text.translatable(KEY + "delay.tooltip"))
+				.setTooltip(Component.translatable(KEY + "delay.tooltip"))
 				.setSaveConsumer(value -> config.replantDelayTicks = value)
 				.build());
-		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "protect"), config.protectBlocksWhileHolding)
+		general.addEntry(entries.startBooleanToggle(Component.translatable(KEY + "protect"), config.protectBlocksWhileHolding)
 				.setDefaultValue(defaults.protectBlocksWhileHolding)
-				.setTooltip(Text.translatable(KEY + "protect.tooltip"))
+				.setTooltip(Component.translatable(KEY + "protect.tooltip"))
 				.setSaveConsumer(value -> config.protectBlocksWhileHolding = value)
 				.build());
-		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "switch_back"), config.switchBackToHeldItem)
+		general.addEntry(entries.startBooleanToggle(Component.translatable(KEY + "switch_back"), config.switchBackToHeldItem)
 				.setDefaultValue(defaults.switchBackToHeldItem)
-				.setTooltip(Text.translatable(KEY + "switch_back.tooltip"))
+				.setTooltip(Component.translatable(KEY + "switch_back.tooltip"))
 				.setSaveConsumer(value -> config.switchBackToHeldItem = value)
 				.build());
-		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "only_with_seeds"), config.onlyHarvestWithSeeds)
+		general.addEntry(entries.startBooleanToggle(Component.translatable(KEY + "only_with_seeds"), config.onlyHarvestWithSeeds)
 				.setDefaultValue(defaults.onlyHarvestWithSeeds)
-				.setTooltip(Text.translatable(KEY + "only_with_seeds.tooltip"))
+				.setTooltip(Component.translatable(KEY + "only_with_seeds.tooltip"))
 				.setSaveConsumer(value -> config.onlyHarvestWithSeeds = value)
 				.build());
-		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "show_messages"), config.showMessages)
+		general.addEntry(entries.startBooleanToggle(Component.translatable(KEY + "show_messages"), config.showMessages)
 				.setDefaultValue(defaults.showMessages)
-				.setTooltip(Text.translatable(KEY + "show_messages.tooltip"))
+				.setTooltip(Component.translatable(KEY + "show_messages.tooltip"))
 				.setSaveConsumer(value -> config.showMessages = value)
 				.build());
-		general.addEntry(entries.startTextDescription(Text.translatable(KEY + "keybind_hint")).build());
+		general.addEntry(entries.startTextDescription(Component.translatable(KEY + "keybind_hint")).build());
 
-		ConfigCategory crops = builder.getOrCreateCategory(Text.translatable(KEY + "category.crops"));
+		ConfigCategory crops = builder.getOrCreateCategory(Component.translatable(KEY + "category.crops"));
 		for(Crop crop : Crop.values())
 		{
 			crops.addEntry(entries.startBooleanToggle(crop.getName(), config.isCropEnabled(crop))
 					.setDefaultValue(true)
-					.setTooltip(Text.translatable(KEY + "crop." + crop.key() + ".tooltip"))
+					.setTooltip(Component.translatable(KEY + "crop." + crop.key() + ".tooltip"))
 					.setSaveConsumer(value -> config.crops.put(crop, value))
 					.build());
 		}
@@ -77,16 +77,16 @@ public final class ConfigScreen
 		return builder.build();
 	}
 
-	private static Text delayText(int ticks)
+	private static Component delayText(int ticks)
 	{
 		if(ticks == 0)
 		{
-			return Text.translatable(KEY + "delay.fastest");
+			return Component.translatable(KEY + "delay.fastest");
 		}
 		if(ticks == AutoReplantConfig.VANILLA_DELAY_TICKS)
 		{
-			return Text.translatable(KEY + "delay.vanilla", ticks);
+			return Component.translatable(KEY + "delay.vanilla", ticks);
 		}
-		return Text.translatable(KEY + "delay.ticks", ticks);
+		return Component.translatable(KEY + "delay.ticks", ticks);
 	}
 }

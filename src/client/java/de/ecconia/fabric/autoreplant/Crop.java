@@ -1,8 +1,7 @@
 package de.ecconia.fabric.autoreplant;
 
-import net.minecraft.text.Text;
-
 import java.util.Locale;
+import net.minecraft.network.chat.Component;
 
 /**
  * Every kind of plant the mod can harvest. Each one has its own on/off switch in the settings.
@@ -29,14 +28,14 @@ public enum Crop
 		return name().toLowerCase(Locale.ROOT);
 	}
 
-	public Text getName()
+	public Component getName()
 	{
-		return Text.translatable("crop." + AutoReplant.MOD_ID + "." + key());
+		return Component.translatable("crop." + AutoReplant.MOD_ID + "." + key());
 	}
 
 	//Which tool breaks it in one hit. Only some crops need one, the others break instantly with anything.
-	public Text toolHint()
+	public Component toolHint()
 	{
-		return Text.translatableWithFallback("crop." + AutoReplant.MOD_ID + "." + key() + ".tool_hint", "Use a faster tool.");
+		return Component.translatableWithFallback("crop." + AutoReplant.MOD_ID + "." + key() + ".tool_hint", "Use a faster tool.");
 	}
 }
