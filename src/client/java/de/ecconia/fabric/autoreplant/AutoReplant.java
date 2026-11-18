@@ -1,12 +1,22 @@
 package de.ecconia.fabric.autoreplant;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
+import net.minecraft.block.CocoaBlock;
 import net.minecraft.block.CropBlock;
 import net.minecraft.block.NetherWartBlock;
+import net.minecraft.block.PitcherCropBlock;
+import net.minecraft.block.enums.DoubleBlockHalf;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.network.ClientPlayerInteractionManager;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Item;
@@ -14,92 +24,257 @@ import net.minecraft.item.Items;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
+import org.jetbrains.annotations.Nullable;
+import org.lwjgl.glfw.GLFW;
 
 public class AutoReplant implements ClientModInitializer
 {
+	public static final String MOD_ID = "ecconia-auto-replant";
+	//PitcherCropBlock keeps its max age in an unnamed constant (field_43240).
+	private static final int PITCHER_MAX_AGE = 4;
+
+	public static AutoReplantConfig config;
+
 	@Override
 	public void onInitializeClient()
 	{
+		config = AutoReplantConfig.load();
+
+		//Unbound by default, set it in Options > Controls > Key Binds.
+		KeyBinding toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+				"key." + MOD_ID + ".toggle",
+				InputUtil.Type.KEYSYM,
+				GLFW.GLFW_KEY_UNKNOWN,
+				KeyBinding.Category.create(Identifier.of(MOD_ID, "main"))));
+		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			while(toggleKey.wasPressed())
+			{
+				config.enabled = !config.enabled;
+				config.save();
+				if(client.player != null)
+				{
+					client.player.sendMessage(Text.translatable("message." + MOD_ID + (config.enabled ? ".enabled" : ".disabled")), true);
+				}
+			}
+		});
+
 		MinecraftClient client = MinecraftClient.getInstance();
 		UseBlockCallback.EVENT.register((PlayerEntity player, World world, Hand hand, BlockHitResult hit) -> {
-			BlockPos pos = hit.getBlockPos();
-			BlockState state = world.getBlockState(hit.getBlockPos());
-			Block block = state.getBlock();
-			
-			if(client.interactionManager == null || client.player == null)
+			//The event also fires on the integrated server in singleplayer; only handle our own client player.
+			//Vanilla asks the main hand first, so act once per click there.
+			if(!config.enabled || client.interactionManager == null || client.player == null || player != client.player || hand != Hand.MAIN_HAND)
 			{
 				return ActionResult.PASS;
 			}
-			
-			if(block instanceof NetherWartBlock netherWarts)
+			Harvest harvest = findHarvest(world, hit.getBlockPos());
+			if(harvest == null || !config.isCropEnabled(harvest.crop()))
 			{
-				if(!netherWarts.hasRandomTicks(state))
-				{
-					Item seed = Items.NETHER_WART;
-					return doTheHarvestThing(client, hit, player, pos, seed);
-				}
+				return ActionResult.PASS;
 			}
-			else if(block instanceof CropBlock cropBlock)
-			{
-				if(cropBlock.isMature(state))
-				{
-					Item seed = cropBlock.getSeedsItem().asItem();
-					return doTheHarvestThing(client, hit, player, pos, seed);
-				}
-			}
-			return ActionResult.PASS;
+			return doTheHarvestThing(client, client.player, world, hit, harvest);
 		});
 	}
-	
-	private ActionResult doTheHarvestThing(MinecraftClient client, BlockHitResult hit, PlayerEntity player, BlockPos pos, Item seed)
+
+	/**
+	 * @param breakPos the block to break (for pitcher plants always the lower half)
+	 * @param plantHit the click that puts the seed back
+	 */
+	private record Harvest(Crop crop, BlockPos breakPos, BlockState breakState, Item seed, BlockHitResult plantHit)
 	{
-		if(!client.interactionManager.attackBlock(hit.getBlockPos(), hit.getSide()))
+	}
+
+	/**
+	 * @return what to break and replant, or null if the block is not a fully grown crop
+	 */
+	@Nullable
+	private static Harvest findHarvest(World world, BlockPos pos)
+	{
+		BlockState state = world.getBlockState(pos);
+		Block block = state.getBlock();
+
+		if(block instanceof CropBlock cropBlock)
 		{
-			player.sendMessage(Text.literal("[AutoReplant] Not able to break block..."), false);
+			//Wheat, carrots, potatoes, beetroots and crops from mods.
+			//(Torchflower crops never count as mature here, a grown one becomes the torchflower block below.)
+			if(cropBlock.isMature(state))
+			{
+				return growsOnBlockBelow(cropType(block), pos, state, cropBlock.getSeedsItem().asItem());
+			}
+		}
+		else if(block instanceof NetherWartBlock)
+		{
+			if(state.get(NetherWartBlock.AGE) >= NetherWartBlock.MAX_AGE)
+			{
+				return growsOnBlockBelow(Crop.NETHER_WART, pos, state, Items.NETHER_WART);
+			}
+		}
+		else if(state.isOf(Blocks.TORCHFLOWER))
+		{
+			//Only torchflowers on farmland: decorative ones on grass are left alone.
+			if(world.getBlockState(pos.down()).isOf(Blocks.FARMLAND))
+			{
+				return growsOnBlockBelow(Crop.TORCHFLOWER, pos, state, Items.TORCHFLOWER_SEEDS);
+			}
+		}
+		else if(block instanceof PitcherCropBlock)
+		{
+			//Two blocks tall when grown. Whichever half was clicked, break and replant from the lower one.
+			BlockPos lowerPos = state.get(PitcherCropBlock.HALF) == DoubleBlockHalf.UPPER ? pos.down() : pos;
+			BlockState lowerState = world.getBlockState(lowerPos);
+			if(lowerState.getBlock() instanceof PitcherCropBlock
+					&& lowerState.get(PitcherCropBlock.HALF) == DoubleBlockHalf.LOWER
+					&& lowerState.get(PitcherCropBlock.AGE) >= PITCHER_MAX_AGE)
+			{
+				return growsOnBlockBelow(Crop.PITCHER_PLANT, lowerPos, lowerState, Items.PITCHER_POD);
+			}
+		}
+		else if(block instanceof CocoaBlock)
+		{
+			if(state.get(CocoaBlock.AGE) >= CocoaBlock.MAX_AGE)
+			{
+				//Cocoa hangs on the side of a jungle log and FACING points at that log.
+				//Clicking the same log face places the new pod facing the same way.
+				Direction towardsLog = state.get(CocoaBlock.FACING);
+				BlockPos logPos = pos.offset(towardsLog);
+				Direction logFace = towardsLog.getOpposite();
+				BlockHitResult plantHit = new BlockHitResult(Vec3d.ofCenter(logPos).offset(logFace, 0.5), logFace, logPos, false);
+				return new Harvest(Crop.COCOA, pos, state, Items.COCOA_BEANS, plantHit);
+			}
+		}
+		return null;
+	}
+
+	private static Crop cropType(Block block)
+	{
+		if(block == Blocks.WHEAT)
+		{
+			return Crop.WHEAT;
+		}
+		if(block == Blocks.CARROTS)
+		{
+			return Crop.CARROTS;
+		}
+		if(block == Blocks.POTATOES)
+		{
+			return Crop.POTATOES;
+		}
+		if(block == Blocks.BEETROOTS)
+		{
+			return Crop.BEETROOTS;
+		}
+		return Crop.OTHER;
+	}
+
+	//Replanted by clicking the top of the farmland (or soul sand) it grows on.
+	private static Harvest growsOnBlockBelow(Crop crop, BlockPos pos, BlockState state, Item seed)
+	{
+		BlockPos fieldBlockPos = pos.down();
+		BlockHitResult plantHit = new BlockHitResult(
+				new Vec3d(fieldBlockPos.getX() + 0.5f, fieldBlockPos.getY() + 0.9375f, fieldBlockPos.getZ() + 0.5f),
+				Direction.UP,
+				fieldBlockPos,
+				false);
+		return new Harvest(crop, pos, state, seed, plantHit);
+	}
+
+	private static ActionResult doTheHarvestThing(MinecraftClient client, ClientPlayerEntity player, World world, BlockHitResult hit, Harvest harvest)
+	{
+		ClientPlayerInteractionManager interactions = client.interactionManager;
+		PlayerInventory playerInventory = player.getInventory();
+		Item seed = harvest.seed();
+
+		//Find the seed before breaking anything: in hand, in the off-hand, or elsewhere in the hotbar.
+		boolean seedInOffHand = !player.getMainHandStack().isOf(seed) && player.getOffHandStack().isOf(seed);
+		int seedSlot = seedInOffHand ? -1 : findInHotbar(playerInventory, seed);
+		boolean haveSeed = seedInOffHand || seedSlot != -1;
+		//When skipping a crop, still return FAIL: vanilla would otherwise use the held item on it
+		//(for example place a held block, or cocoa beans on a nearby jungle log).
+		if(!haveSeed && config.onlyHarvestWithSeeds)
+		{
+			message(player, "no_seeds", seed.getName());
+			return ActionResult.FAIL;
+		}
+
+		//Some crops do not break in one hit (cocoa without an iron or better axe).
+		//Attacking them would only start mining, which also blocks right-click until it is cancelled.
+		if(!player.isCreative() && harvest.breakState().calcBlockBreakingDelta(player, world, harvest.breakPos()) < 1.0f)
+		{
+			message(player, "needs_tool", harvest.crop().getName());
+			return ActionResult.FAIL;
+		}
+
+		if(!interactions.attackBlock(harvest.breakPos(), hit.getSide()))
+		{
+			message(player, "break_failed", harvest.crop().getName());
 			//At this point, normal interaction may happen:
 			return ActionResult.PASS;
 		}
 		//From here on, the script must fail.
-		
-		//Select wheat seeds in the hotbar (given there are some in there...)
-		PlayerInventory playerInventory = player.getInventory();
-		int matchingSlot = -1;
-		for(int i = 0; i < 9; i++)
+		if(world.getBlockState(harvest.breakPos()) == harvest.breakState())
 		{
-			if(playerInventory.getStack(i).getItem() == seed)
-			{
-				matchingSlot = i;
-				break;
-			}
-		}
-		if(matchingSlot == -1)
-		{
-			//End life:
+			//Break was refused on the client (for example a sword in creative).
+			message(player, "break_failed", harvest.crop().getName());
 			return ActionResult.FAIL;
 		}
-		playerInventory.setSelectedSlot(matchingSlot);
-		
-		BlockPos fieldBlockPos = pos.down();
-		if(!client.interactionManager.interactBlock(client.player, Hand.MAIN_HAND, new BlockHitResult(
-				new Vec3d(fieldBlockPos.getX() + 0.5f, fieldBlockPos.getY() + 0.9375f, fieldBlockPos.getZ() + 0.5f),
-				Direction.UP,
-				hit.getBlockPos().down(),
-				false)
-		).isAccepted())
+
+		if(!haveSeed)
 		{
-			player.sendMessage(Text.literal("[AutoReplant] Failed to interact with block..."), false);
+			message(player, "no_seeds", seed.getName());
+			return ActionResult.FAIL;
+		}
+
+		int previousSlot = playerInventory.getSelectedSlot();
+		Hand plantHand = seedInOffHand ? Hand.OFF_HAND : Hand.MAIN_HAND;
+		if(!seedInOffHand)
+		{
+			playerInventory.setSelectedSlot(seedSlot);
+		}
+		boolean planted = interactions.interactBlock(player, plantHand, harvest.plantHit()).isAccepted();
+		if(config.switchBackToHeldItem && !seedInOffHand)
+		{
+			playerInventory.setSelectedSlot(previousSlot);
+		}
+		if(!planted)
+		{
+			message(player, "plant_failed", harvest.crop().getName());
 			return ActionResult.FAIL;
 		}
 
 		//Harvest and replant fully succeeded: vanilla has just set the held-right-click delay (itemUseCooldown) to 4 ticks.
-		//Clear it, so the next crop can be harvested on the next tick (same rate as holding left click).
+		//Replace it with the configured delay (0 = next crop on the next tick, the same rate as holding left click).
 		//Only done on success, so failures keep vanilla pacing.
-		client.itemUseCooldown = 0;
+		client.itemUseCooldown = config.replantDelayTicks;
 		return ActionResult.FAIL;
+	}
+
+	//Prefers the selected slot, so no slot switch is needed when the seeds are already in hand.
+	private static int findInHotbar(PlayerInventory playerInventory, Item seed)
+	{
+		if(playerInventory.getSelectedStack().isOf(seed))
+		{
+			return playerInventory.getSelectedSlot();
+		}
+		for(int i = 0; i < PlayerInventory.getHotbarSize(); i++)
+		{
+			if(playerInventory.getStack(i).isOf(seed))
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private static void message(PlayerEntity player, String key, Object... args)
+	{
+		if(config.showMessages)
+		{
+			player.sendMessage(Text.translatable("message." + MOD_ID + "." + key, args), true);
+		}
 	}
 }
