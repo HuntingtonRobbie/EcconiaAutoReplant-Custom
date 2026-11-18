@@ -1,3 +1,25 @@
+# Ecconia's Auto Replant (custom fork)
+
+This is a personal fork of **[Ecconia's Auto Replant](https://github.com/Ecconia/EcconiaAutoReplant)** by **Ecconia**. All credit for the original mod goes to Ecconia.
+
+The fork is licensed under the **GNU GPL v3.0**, the same as the original (see `LICENSE`). Every change is listed below and in the commit history. It was made for personal use and is not an official release.
+
+## Branches
+- `26.3`: Minecraft 26.3 (Mojang names, no remapping).
+- `1.21.11`: Minecraft 1.21.11.
+
+Both are built on upstream `master` (Minecraft 1.21.8).
+
+## What this fork changes
+- **Faster held right-click:** a crop is harvested and replanted every tick while right-click is held, instead of waiting for vanilla's use delay.
+- **Every vanilla crop:** adds cocoa (replanted on the same jungle log face), torchflowers and pitcher plants to the existing crops, each with its own toggle.
+- **Harvest-only crops:** sugar cane (the base block stays), and pumpkins and melons that have an attached stem.
+- **Settings:** stored in `config/ecconia-auto-replant.json`, with a Mod Menu + Cloth Config screen (both optional). Options: an on/off toggle key, the held-click delay, switching back to the held item, harvesting only when seeds are available, action bar messages, and protecting other blocks while right-click is held.
+- `26.3` only: ported to Minecraft 26.3.
+
+---
+
+*The original README follows.*
 # Ecconia's Auto Replant
 
 ## For?
