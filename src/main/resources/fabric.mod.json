@@ -3,7 +3,7 @@
 	"id": "ecconia-auto-replant",
 	"version": "${version}",
 	"name": "Ecconia's Auto Replanter",
-	"description": "Harvests and replants crops on interaction.",
+	"description": "Harvests and replants crops on interaction. Supports every vanilla crop (including cocoa, torchflowers and pitcher plants), with settings in Mod Menu.",
 	"authors": [
 		"Ecconia"
 	],
@@ -17,6 +17,9 @@
 	"entrypoints": {
 		"client": [
 			"de.ecconia.fabric.autoreplant.AutoReplant"
+		],
+		"modmenu": [
+			"de.ecconia.fabric.autoreplant.config.ModMenuIntegration"
 		]
 	},
 	"mixins": [
@@ -30,6 +33,10 @@
 		"minecraft": "~1.21.11",
 		"java": ">=21",
 		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*",
+		"cloth-config": "*"
 	},
 	"accessWidener": "ecconia-auto-replant.client.accesswidener"
 }
