@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.block.AttachedStemBlock;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -40,6 +41,10 @@ public class AutoReplant implements ClientModInitializer
 	private static final int PITCHER_MAX_AGE = 4;
 
 	public static AutoReplantConfig config;
+	//Something was harvested since right-click was last pressed down.
+	private static boolean harvestedThisHold;
+	//True while our own replant click runs, so the callback lets it through.
+	private static boolean replanting;
 
 	@Override
 	public void onInitializeClient()
@@ -62,20 +67,26 @@ public class AutoReplant implements ClientModInitializer
 					client.player.sendMessage(Text.translatable("message." + MOD_ID + (config.enabled ? ".enabled" : ".disabled")), true);
 				}
 			}
+			if(!client.options.useKey.isPressed())
+			{
+				harvestedThisHold = false;
+			}
 		});
 
 		MinecraftClient client = MinecraftClient.getInstance();
 		UseBlockCallback.EVENT.register((PlayerEntity player, World world, Hand hand, BlockHitResult hit) -> {
 			//The event also fires on the integrated server in singleplayer; only handle our own client player.
 			//Vanilla asks the main hand first, so act once per click there.
-			if(!config.enabled || client.interactionManager == null || client.player == null || player != client.player || hand != Hand.MAIN_HAND)
+			if(replanting || !config.enabled || client.interactionManager == null || client.player == null || player != client.player || hand != Hand.MAIN_HAND)
 			{
 				return ActionResult.PASS;
 			}
 			Harvest harvest = findHarvest(world, hit.getBlockPos());
 			if(harvest == null || !config.isCropEnabled(harvest.crop()))
 			{
-				return ActionResult.PASS;
+				//While right-click is still held after a harvest, the crosshair sweeps over other blocks:
+				//don't let the held item act on them (an axe would strip logs, a held block would be placed).
+				return config.protectBlocksWhileHolding && harvestedThisHold ? ActionResult.FAIL : ActionResult.PASS;
 			}
 			return doTheHarvestThing(client, client.player, world, hit, harvest);
 		});
@@ -83,14 +94,15 @@ public class AutoReplant implements ClientModInitializer
 
 	/**
 	 * @param breakPos the block to break (for pitcher plants always the lower half)
-	 * @param plantHit the click that puts the seed back
+	 * @param seed what to replant with, null for plants that are only harvested (sugar cane, pumpkins, melons)
+	 * @param plantHit the click that puts the seed back, null when there is no seed
 	 */
-	private record Harvest(Crop crop, BlockPos breakPos, BlockState breakState, Item seed, BlockHitResult plantHit)
+	private record Harvest(Crop crop, BlockPos breakPos, BlockState breakState, @Nullable Item seed, @Nullable BlockHitResult plantHit)
 	{
 	}
 
 	/**
-	 * @return what to break and replant, or null if the block is not a fully grown crop
+	 * @return what to break (and replant), or null if the block is not ready to harvest
 	 */
 	@Nullable
 	private static Harvest findHarvest(World world, BlockPos pos)
@@ -147,7 +159,51 @@ public class AutoReplant implements ClientModInitializer
 				return new Harvest(Crop.COCOA, pos, state, Items.COCOA_BEANS, plantHit);
 			}
 		}
+		else if(state.isOf(Blocks.SUGAR_CANE))
+		{
+			//Keep the bottom block so it grows back: break the one above it, everything higher pops off with it.
+			BlockPos basePos = pos;
+			while(world.getBlockState(basePos.down()).isOf(Blocks.SUGAR_CANE))
+			{
+				basePos = basePos.down();
+			}
+			BlockPos cutPos = basePos.up();
+			BlockState cutState = world.getBlockState(cutPos);
+			if(cutState.isOf(Blocks.SUGAR_CANE))
+			{
+				return new Harvest(Crop.SUGAR_CANE, cutPos, cutState, null, null);
+			}
+		}
+		else if(state.isOf(Blocks.PUMPKIN))
+		{
+			if(isGrownFromStem(world, pos, Blocks.ATTACHED_PUMPKIN_STEM))
+			{
+				return new Harvest(Crop.PUMPKIN, pos, state, null, null);
+			}
+		}
+		else if(state.isOf(Blocks.MELON))
+		{
+			if(isGrownFromStem(world, pos, Blocks.ATTACHED_MELON_STEM))
+			{
+				return new Harvest(Crop.MELON, pos, state, null, null);
+			}
+		}
 		return null;
+	}
+
+	//Only fruit that grew on a stem: a stem attaches to the fruit it grows, and FACING points at it.
+	//Pumpkins and melons placed by hand (decoration, builds) never have one, so they are left alone.
+	private static boolean isGrownFromStem(World world, BlockPos fruitPos, Block attachedStem)
+	{
+		for(Direction direction : Direction.Type.HORIZONTAL)
+		{
+			BlockState neighbour = world.getBlockState(fruitPos.offset(direction));
+			if(neighbour.isOf(attachedStem) && neighbour.get(AttachedStemBlock.FACING) == direction.getOpposite())
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static Crop cropType(Block block)
@@ -188,24 +244,27 @@ public class AutoReplant implements ClientModInitializer
 		ClientPlayerInteractionManager interactions = client.interactionManager;
 		PlayerInventory playerInventory = player.getInventory();
 		Item seed = harvest.seed();
+		boolean replant = seed != null;
 
 		//Find the seed before breaking anything: in hand, in the off-hand, or elsewhere in the hotbar.
-		boolean seedInOffHand = !player.getMainHandStack().isOf(seed) && player.getOffHandStack().isOf(seed);
-		int seedSlot = seedInOffHand ? -1 : findInHotbar(playerInventory, seed);
+		boolean seedInOffHand = replant && !player.getMainHandStack().isOf(seed) && player.getOffHandStack().isOf(seed);
+		int seedSlot = replant && !seedInOffHand ? findInHotbar(playerInventory, seed) : -1;
 		boolean haveSeed = seedInOffHand || seedSlot != -1;
 		//When skipping a crop, still return FAIL: vanilla would otherwise use the held item on it
 		//(for example place a held block, or cocoa beans on a nearby jungle log).
-		if(!haveSeed && config.onlyHarvestWithSeeds)
+		if(replant && !haveSeed && config.onlyHarvestWithSeeds)
 		{
 			message(player, "no_seeds", seed.getName());
 			return ActionResult.FAIL;
 		}
 
-		//Some crops do not break in one hit (cocoa without an iron or better axe).
-		//Attacking them would only start mining, which also blocks right-click until it is cancelled.
+		//Some crops do not break in one hit with every tool: cocoa needs an iron+ axe, pumpkins and melons
+		//need mining speed 30 (Efficiency V axe, or Efficiency IV plus Haste). This uses the same speed check
+		//as vanilla, so enchantments, Haste, Mining Fatigue, water and standing on the ground all count.
+		//Attacking anyway would only start mining, which also blocks right-click until it is cancelled.
 		if(!player.isCreative() && harvest.breakState().calcBlockBreakingDelta(player, world, harvest.breakPos()) < 1.0f)
 		{
-			message(player, "needs_tool", harvest.crop().getName());
+			message(player, "needs_tool", harvest.crop().getName(), harvest.crop().toolHint());
 			return ActionResult.FAIL;
 		}
 
@@ -222,31 +281,44 @@ public class AutoReplant implements ClientModInitializer
 			message(player, "break_failed", harvest.crop().getName());
 			return ActionResult.FAIL;
 		}
+		harvestedThisHold = true;
 
-		if(!haveSeed)
+		if(replant)
 		{
-			message(player, "no_seeds", seed.getName());
-			return ActionResult.FAIL;
+			if(!haveSeed)
+			{
+				message(player, "no_seeds", seed.getName());
+				return ActionResult.FAIL;
+			}
+
+			int previousSlot = playerInventory.getSelectedSlot();
+			Hand plantHand = seedInOffHand ? Hand.OFF_HAND : Hand.MAIN_HAND;
+			if(!seedInOffHand)
+			{
+				playerInventory.setSelectedSlot(seedSlot);
+			}
+			boolean planted;
+			replanting = true;
+			try
+			{
+				planted = interactions.interactBlock(player, plantHand, harvest.plantHit()).isAccepted();
+			}
+			finally
+			{
+				replanting = false;
+			}
+			if(config.switchBackToHeldItem && !seedInOffHand)
+			{
+				playerInventory.setSelectedSlot(previousSlot);
+			}
+			if(!planted)
+			{
+				message(player, "plant_failed", harvest.crop().getName());
+				return ActionResult.FAIL;
+			}
 		}
 
-		int previousSlot = playerInventory.getSelectedSlot();
-		Hand plantHand = seedInOffHand ? Hand.OFF_HAND : Hand.MAIN_HAND;
-		if(!seedInOffHand)
-		{
-			playerInventory.setSelectedSlot(seedSlot);
-		}
-		boolean planted = interactions.interactBlock(player, plantHand, harvest.plantHit()).isAccepted();
-		if(config.switchBackToHeldItem && !seedInOffHand)
-		{
-			playerInventory.setSelectedSlot(previousSlot);
-		}
-		if(!planted)
-		{
-			message(player, "plant_failed", harvest.crop().getName());
-			return ActionResult.FAIL;
-		}
-
-		//Harvest and replant fully succeeded: vanilla has just set the held-right-click delay (itemUseCooldown) to 4 ticks.
+		//Harvest (and replant) fully succeeded: vanilla has just set the held-right-click delay (itemUseCooldown) to 4 ticks.
 		//Replace it with the configured delay (0 = next crop on the next tick, the same rate as holding left click).
 		//Only done on success, so failures keep vanilla pacing.
 		client.itemUseCooldown = config.replantDelayTicks;

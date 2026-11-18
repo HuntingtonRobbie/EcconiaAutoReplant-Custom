@@ -42,6 +42,11 @@ public final class ConfigScreen
 				.setTooltip(Text.translatable(KEY + "delay.tooltip"))
 				.setSaveConsumer(value -> config.replantDelayTicks = value)
 				.build());
+		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "protect"), config.protectBlocksWhileHolding)
+				.setDefaultValue(defaults.protectBlocksWhileHolding)
+				.setTooltip(Text.translatable(KEY + "protect.tooltip"))
+				.setSaveConsumer(value -> config.protectBlocksWhileHolding = value)
+				.build());
 		general.addEntry(entries.startBooleanToggle(Text.translatable(KEY + "switch_back"), config.switchBackToHeldItem)
 				.setDefaultValue(defaults.switchBackToHeldItem)
 				.setTooltip(Text.translatable(KEY + "switch_back.tooltip"))

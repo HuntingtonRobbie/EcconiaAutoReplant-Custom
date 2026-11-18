@@ -5,7 +5,7 @@ import net.minecraft.text.Text;
 import java.util.Locale;
 
 /**
- * Every kind of plant the mod can harvest and replant. Each one has its own on/off switch in the settings.
+ * Every kind of plant the mod can harvest. Each one has its own on/off switch in the settings.
  */
 public enum Crop
 {
@@ -17,6 +17,10 @@ public enum Crop
 	COCOA,
 	TORCHFLOWER,
 	PITCHER_PLANT,
+	//Harvest only, nothing to replant: sugar cane keeps its bottom block, pumpkins and melons keep their stem.
+	SUGAR_CANE,
+	PUMPKIN,
+	MELON,
 	//Any other crop block, for example from other mods.
 	OTHER;
 
@@ -28,5 +32,11 @@ public enum Crop
 	public Text getName()
 	{
 		return Text.translatable("crop." + AutoReplant.MOD_ID + "." + key());
+	}
+
+	//Which tool breaks it in one hit. Only some crops need one, the others break instantly with anything.
+	public Text toolHint()
+	{
+		return Text.translatableWithFallback("crop." + AutoReplant.MOD_ID + "." + key() + ".tool_hint", "Use a faster tool.");
 	}
 }

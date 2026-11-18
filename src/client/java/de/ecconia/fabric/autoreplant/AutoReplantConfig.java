@@ -28,8 +28,10 @@ public class AutoReplantConfig
 
 	//Master switch, also flipped by the toggle key.
 	public boolean enabled = true;
-	//Ticks to wait after a successful replant before held right-click fires again. 0 = one crop per tick, 4 = vanilla.
+	//Ticks to wait after a successful harvest before held right-click fires again. 0 = one crop per tick, 4 = vanilla.
 	public int replantDelayTicks = 0;
+	//After a harvest, while right-click is still held, don't use the held item on other blocks (no stripped logs).
+	public boolean protectBlocksWhileHolding = true;
 	//After taking seeds from another hotbar slot, go back to the item held before (keeps a Fortune hoe or an axe in hand).
 	public boolean switchBackToHeldItem = true;
 	//Leave the crop alone when there is nothing to replant it with.
